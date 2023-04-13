@@ -1,3 +1,12 @@
+###################################################################################################
+# Robotica Q8 2022-2023
+# Title: Practica 2
+# Authors:
+#   - Óscar Alejandro Manteiga Seoane
+#   - Antonio Vila Leis
+###################################################################################################
+# Imports 
+###################################################################################################
 from controller import Robot  # Módulo de Webots para el control el robot.
 from controller import Camera  # Módulo de Webots para el control de la cámara.
 
@@ -10,7 +19,19 @@ MAX_SPEED = 47.6
 # Velocidad por defecto para este comportamiento.
 CRUISE_SPEED = 8
 # Time step por defecto para el controlador.
-TIME_STEP = 32
+TIME_STEP = 16
+# Tamaño de las baldosas del suelo.
+SQUARE_SIZE = 250
+# Radio de la rueda del robot.
+WHEEL_RADIUS = 21
+# Radio entre las ruedas del robot.
+BETWEEN_WHEELS_RADIUS = 108.29 / 2
+# Delta del incremento de la posición angular para un movimiento recto.
+FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
+# Delta del incremento de la posición angular para un giro de 90º (pi/2 rad).
+TURN_DELTA = 0.5*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+# Distancia recorrida por el robot.
+DISTANCE_TRAVELED = 0
 
 # Nombres de los sensores de distancia basados en infrarrojo.
 INFRARED_SENSORS_NAMES = [
@@ -24,6 +45,36 @@ INFRARED_SENSORS_NAMES = [
     "rear infrared sensor",
 ]
 
+# Nombres de los motores
+MOTOR_NAMES = [
+    "left wheel motor",
+    "right wheel motor",
+]
+
+# Nombres de los sensores de posición de las ruedas.
+ENCODER_NAMES = [
+    "left wheel sensor",
+    "right wheel sensor",
+]
+
+# Nombres de los posibles estados del robot.
+STATES = {
+    "MAP_MAKING": 0,
+    "PATROL": 1,
+    "COME_BACK": 2,
+    "STOP": 3,
+}
+
+# Tipos de movimientos.
+MOVEMENTS = {
+    "FORWARD": 0,
+    "TURN_LEFT": 1,
+    "TURN_RIGHT": 2,
+}
+
+###################################################################################################
+# Funciones auxiliares.
+###################################################################################################
 def enable_distance_sensors(robot, timeStep, sensorNames):
     """
     Obtener y activar los sensores de distancia.
@@ -57,8 +108,8 @@ def init_devices(timeStep):
     # simTimeStep = int(robot.getBasicTimeStep())
 
     # Obtener dispositivos correspondientes a los motores de las ruedas.
-    leftWheel = robot.getDevice("left wheel motor")
-    rightWheel = robot.getDevice("right wheel motor")
+    leftWheel = robot.getDevice(MOTOR_NAMES[0])
+    rightWheel = robot.getDevice(MOTOR_NAMES[1])
 
     # Configuración inicial para utilizar movimiento por posición (necesario para odometría).
     # En movimiento por velocidad, establecer posición a infinito (wheel.setPosition(float('inf'))).
@@ -77,13 +128,10 @@ def init_devices(timeStep):
     camera.enable(timeStep * 10)
 
     # Obtener y activar los sensores de posición de las ruedas (encoders).
-    posL = robot.getDevice("left wheel sensor")
-    posR = robot.getDevice("right wheel sensor")
+    posL = robot.getDevice(ENCODER_NAMES[0])
+    posR = robot.getDevice(ENCODER_NAMES[1])
     posL.enable(timeStep)
     posR.enable(timeStep)
-
-    # TODO: Obtener y activar otros dispositivos necesarios.
-    # ...
 
     return robot, leftWheel, rightWheel, irSensorList, posL, posR, camera
 
@@ -128,71 +176,114 @@ def process_image_hsv(camera):
     cv2.imshow("Processed Image", image)
     cv2.waitKey(1)
 
-def turn_left(leftWheel, rightWheel, speed, duration):
+def stop(leftWheel, rightWheel):
     """
-    Hacer girar al robot hacia la izquierda durante la duración especificada.
+    Para el robot.
     """
 
-    # Convertir la velocidad de cm/s a rad/s para los motores de las ruedas.
-    leftWheel.setVelocity(-speed * MAX_SPEED / 100)
-    rightWheel.setVelocity(speed * MAX_SPEED / 100)
-
-    # Esperar la duración especificada.
-    time.sleep(duration)
-
-    # Detener los motores de las ruedas.
     leftWheel.setVelocity(0)
     rightWheel.setVelocity(0)
-
-def turn_right(leftWheel, rightWheel, speed, duration):
+     
+def forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map):
     """
-    Hacer girar al robot hacia la derecha durante la duración especificada.
+    Mueve el robot hacia delante.
     """
 
-    # Convertir la velocidad de cm/s a rad/s para los motores de las ruedas.
-    leftWheel.setVelocity(speed * MAX_SPEED / 100)
-    rightWheel.setVelocity(-speed * MAX_SPEED / 100)
+    if direction%4 == 0:
+        current_pos_map = (current_pos_map[0] + 1, current_pos_map[1])
+    elif direction%4 == 1:
+        current_pos_map = (current_pos_map[0], current_pos_map[1] + 1)
+    elif direction%4 == 2:
+        current_pos_map = (current_pos_map[0] - 1, current_pos_map[1])
+    elif direction%4 == 3:
+        current_pos_map = (current_pos_map[0], current_pos_map[1] - 1)
+    incrementL = FORWARD_DELTA
+    incrementR = FORWARD_DELTA
+    leftWheel.setVelocity(CRUISE_SPEED) 
+    rightWheel.setVelocity(CRUISE_SPEED)
+    leftWheel.setPosition(encoderL.getValue() + incrementL)
+    rightWheel.setPosition(encoderR.getValue() + incrementR)
+    return current_pos_map
+    
+def turn_left(leftWheel, rightWheel, encoderL, encoderR, direction):
+    """
+    Gira el robot hacia la izquierda.
+    """
 
-    # Esperar la duración especificada.
-    time.sleep(duration)
+    direction += 1
+    leftWheel.setVelocity(CRUISE_SPEED) 
+    rightWheel.setVelocity(CRUISE_SPEED)  
+    leftWheel.setPosition(encoderL.getValue()-TURN_DELTA) 
+    rightWheel.setPosition(encoderR.getValue()+TURN_DELTA)
+    return direction
+    
+def turn_right(leftWheel, rightWheel, encoderL, encoderR, direction):
+    """
+    Gira el robot hacia la derecha.
+    """
 
-    # Detener los motores de las ruedas.
-    leftWheel.setVelocity(0)
-    rightWheel.setVelocity(0)
-
-def move_forward(leftWheel, rightWheel, speed, duration):
-    # Convertir la velocidad de cm/s a rad/s para los motores de las ruedas.
-    leftWheel.setVelocity(speed * MAX_SPEED / 100)
-    rightWheel.setVelocity(speed * MAX_SPEED / 100)
-
-    # Esperar la duración especificada.
-    time.sleep(duration)
-
-    # Detener los motores de las ruedas.
-    leftWheel.setVelocity(0)
-    rightWheel.setVelocity(0)
+    direction -= 1
+    leftWheel.setVelocity(CRUISE_SPEED) 
+    rightWheel.setVelocity(CRUISE_SPEED)  
+    leftWheel.setPosition(encoderL.getValue()+TURN_DELTA) 
+    rightWheel.setPosition(encoderR.getValue()-TURN_DELTA)
+    return direction
 
 def main():
     # Activamos los dispositivos necesarios y obtenemos referencias a ellos.
-    robot, leftWheel, rightWheel, irSensorList, posL, posR, camera = init_devices(TIME_STEP)
+    robot, leftWheel, rightWheel, irSensorList, encoderL, encoderR, camera = init_devices(TIME_STEP)
 
-    # Ejecutamos una sincronización para tener disponible el primer frame de la cámara.
-    robot.step(TIME_STEP)
+    # Variables para el control del robot.
+    direction = 0
+    movement = -1
+    stopped = True
+    initial_pos = encoderL.getValue()
+    current_pos_map = (0, 0)
 
-    # Avanzar recto durante 5 segundos a una velocidad de crucero.
-    move_forward(leftWheel, rightWheel, CRUISE_SPEED, 5)
+    while robot.step(TIME_STEP) != -1:       
+        if stopped:
+            # Si hay pared a la izquierda, seguir de frente
+            if irSensorList[1].getValue() > 185:
+                current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+                
+                initial_pos = encoderL.getValue()
+                stopped = False
+                movement = MOVEMENTS.get("FORWARD")
+                
+                print("Frente")
 
-    # Girar a la derecha durante 2 segundos.
-    leftWheel.setVelocity(-CRUISE_SPEED * MAX_SPEED / 100)
-    rightWheel.setVelocity(CRUISE_SPEED * MAX_SPEED / 100)
-    time.sleep(2)
+            elif irSensorList[3].getValue() < 185 and movement == MOVEMENTS.get("TURN_LEFT"):
+                current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+                
+                initial_pos = encoderL.getValue()
+                stopped = False
+                movement = MOVEMENTS.get("FORWARD")
+                
+                print("Frente")
 
-    # Avanzar recto durante otros 5 segundos a una velocidad de crucero.
-    move_forward(leftWheel, rightWheel, CRUISE_SPEED, 5)
+            # Si no hay pared a la izquierda, girar a la izquierda
+            else:
+                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
+                #current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+                
+                initial_pos = encoderL.getValue()
+                stopped = False
+                movement = MOVEMENTS.get("TURN_LEFT")
+                
+                print("Izquierda")
 
-    # Detener los motores de las ruedas.
-    leftWheel.setVelocity(0)
-    rightWheel.setVelocity(0)
+        if encoderL.getValue() >= initial_pos + FORWARD_DELTA and movement == MOVEMENTS.get("FORWARD"):
+            stopped = True
+            stop(leftWheel, rightWheel)
+            print("Parado (después de ir hacia delante)")
+        elif encoderL.getValue() <= initial_pos - TURN_DELTA + 0.01 and movement == MOVEMENTS.get("TURN_LEFT"):
+            stopped = True
+            stop(leftWheel, rightWheel)
+            print("Parado (después de girar a la izquierda)")
+        elif encoderL.getValue() >= initial_pos + TURN_DELTA - 0.01 and movement == MOVEMENTS.get("TURN_RIGHT"):
+            stopped = True
+            stop(leftWheel, rightWheel)
+            print("Parado (después de girar a la derecha)")
 
 if __name__ == "__main__":
     main()

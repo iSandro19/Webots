@@ -15,9 +15,9 @@ leftWheel = robot.getDevice("left wheel motor")
 rightWheel = robot.getDevice("right wheel motor")
 leftWheel.getPositionSensor().enable(TIME_STEP)
 rightWheel.getPositionSensor().enable(TIME_STEP)
+
 encoderL = robot.getDevice("left wheel sensor")
 encoderR = robot.getDevice("right wheel sensor") 
-
 posL = encoderL.getValue() 
 posR = encoderR.getValue()
 
@@ -226,6 +226,7 @@ print("Started mapping")
 # Comportamiento 1: mapeado
 while robot.step(TIME_STEP) != -1 and finished_mapping == False:
     current_pos = encoderL.getValue()
+    
     if (movement == 0 and current_pos - initial_pos >= FORWARD_ONE):
         stopped = 0
         has_moved = 1
@@ -233,6 +234,7 @@ while robot.step(TIME_STEP) != -1 and finished_mapping == False:
         stopped = 0
     elif (movement == 2 and current_pos - initial_pos >= TURN_VAL -0.004):
         stopped = 0
+    
     if stopped == 0:
         finished_mapping = check_completed(current_pos_map, has_moved)
         ir_values = measure_ir()
