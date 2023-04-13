@@ -243,7 +243,7 @@ def main():
     while robot.step(TIME_STEP) != -1:       
         if stopped:
             # Si hay pared a la izquierda, seguir de frente
-            if irSensorList[1].getValue() > 185:
+            if irSensorList[1].getValue() > 185 and irSensorList[3].getValue() < 185:
                 current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
                 
                 initial_pos = encoderL.getValue()
@@ -261,10 +261,18 @@ def main():
                 
                 print("Frente")
 
+            elif irSensorList[3].getValue() > 185:
+                direction = turn_right(leftWheel, rightWheel, encoderL, encoderR, direction)
+                
+                initial_pos = encoderL.getValue()
+                stopped = False
+                movement = MOVEMENTS.get("TURN_RIGHT")
+                
+                print("Derecha")
+
             # Si no hay pared a la izquierda, girar a la izquierda
             else:
                 direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-                #current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
                 
                 initial_pos = encoderL.getValue()
                 stopped = False
