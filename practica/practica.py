@@ -32,6 +32,23 @@ FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
 TURN_DELTA = 0.5*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
 # Distancia recorrida por el robot.
 DISTANCE_TRAVELED = 0
+# Distancia de corte a las paredes.
+IR_THRESHOLD = 185
+# Tamaño de las columnas de la cámara.
+CAMERA_ROW_SIZE = 752
+CAMERA_ROW_SIZE_2 = CAMERA_ROW_SIZE // 2
+CAMERA_ROW_SIZE_4 = CAMERA_ROW_SIZE // 4
+# Tamaño de las filas de la cámara.
+CAMERA_COL_SIZE = 480
+CAMERA_COL_SIZE_2 = CAMERA_COL_SIZE // 2
+CAMERA_COL_SIZE_4 = CAMERA_COL_SIZE // 4
+
+# Número de canales de la cámara.
+CAMERA_COLOR_CHANNELS = {
+    "red": 0,
+    "green": 1,
+    "blue": 2,
+}
 
 # Nombres de los sensores de distancia basados en infrarrojo.
 INFRARED_SENSORS_NAMES = [
@@ -78,6 +95,11 @@ MOVEMENTS = {
 def enable_distance_sensors(robot, timeStep, sensorNames):
     """
     Obtener y activar los sensores de distancia.
+
+    robot: objeto robot de Webots.
+    timeStep: tiempo (en milisegundos) de actualización por defecto para los sensores/actuadores
+        (cada dispositivo puede tener un valor diferente).
+    sensorNames: lista con los nombres de los sensores de distancia a activar.
 
     Return: lista con los sensores de distancia activados, en el mismo orden
     establecido en la lista de  nombres (sensorNames).
@@ -138,47 +160,86 @@ def init_devices(timeStep):
 def process_image_hsv(camera):
     """
     Procesamiento del último frame capturado por el dispositivo de la cámara
-    utilizando el espacio de color HSV para una detección de color.
+    utilizando el espacio de color RGB para una detección de color.
 
-    RECOMENDACIÓN: utilizar OpenCV para procesar más eficientemente la imagen.
+    camera: dispositivo de la cámara.
     """
 
-    # Obtener el último frame capturado por la cámara.
+    # Obtener la imagen capturada por la cámara.
     image = camera.getImage()
+    # Convertir la imagen a un array de numpy.
+    image = np.array(camera.getImageArray())
+    
+    # Hacer la media de los valores de los píxeles de la imagen en el rango de
+    # la zona de interés (ROI) para cada canal de color.
+    red = int(image[
+        CAMERA_ROW_SIZE_4:(CAMERA_ROW_SIZE_4 + CAMERA_ROW_SIZE_2),
+        CAMERA_COL_SIZE_4:(CAMERA_COL_SIZE_4 + CAMERA_COL_SIZE_2),
+        CAMERA_COLOR_CHANNELS.get("red")
+        ].mean())
+    green = int(image[
+        CAMERA_ROW_SIZE_4:(CAMERA_ROW_SIZE_4 + CAMERA_ROW_SIZE_2),
+        CAMERA_COL_SIZE_4:(CAMERA_COL_SIZE_4 + CAMERA_COL_SIZE_2),
+        CAMERA_COLOR_CHANNELS.get("green")
+        ].mean())
+    blue = int(image[
+        CAMERA_ROW_SIZE_4:(CAMERA_ROW_SIZE_4 + CAMERA_ROW_SIZE_2),
+        CAMERA_COL_SIZE_4:(CAMERA_COL_SIZE_4 + CAMERA_COL_SIZE_2),
+        CAMERA_COLOR_CHANNELS.get("blue")
+        ].mean())
 
-    # Convertir la imagen RGB a HSV.
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    if (red >= 200 and green >= 200 and blue <= 100):
+        print("Amarillo!")
 
-    # Definir los límites inferior y superior del rango de color que queremos detectar (en este caso, rojo).
-    lower_red = np.array([0, 100, 100])
-    upper_red = np.array([10, 255, 255])
+def init_map():
+    """
+    Inicializa una matriz 12x12 celdas llena de ceros.
+    """
+    return [[0] * 12 for _ in range(12)]
 
-    # Crear una máscara para detectar el color rojo en la imagen HSV.
-    mask = cv2.inRange(hsv_image, lower_red, upper_red)
+def update_map(current_pos_map, direction, irSensorList, map):
+    """
+    Actualiza la matriz del mapa del entorno.
 
-    # Aplicar un filtro morfológico de apertura para eliminar pequeñas imperfecciones en la máscara.
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    current_pos_map: tupla que indica la posición actual del robot en la matriz.
+    direction: entero que indica la dirección actual del robot (0=norte, 1=este, 2=sur, 3=oeste).
+    irSensorList: lista con los sensores de distancia infrarrojos activados.
+    map: matriz que representa el mapa del entorno.
+    """
+    # Actualizar la celda actual como visitada.
+    map[current_pos_map[0]][current_pos_map[1]] = 1
 
-    # Buscar los contornos en la máscara para identificar objetos de color rojo.
-    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for row in map:
+        print(" ".join("." if cell == 0 else "#" for cell in row))
 
-    # Si se han encontrado contornos, dibujar un rectángulo alrededor del objeto más grande.
-    if len(contours) > 0:
-        # Encontrar el contorno más grande.
-        largest_contour = max(contours, key=cv2.contourArea)
-        # Encontrar las coordenadas del rectángulo que encierra el contorno más grande.
-        x, y, w, h = cv2.boundingRect(largest_contour)
-        # Dibujar un rectángulo alrededor del objeto más grande.
-        cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 0), 2)
+    """
+    Versión para detectar paredes (no usada)
 
-    # Mostrar la imagen resultante en una ventana.
-    cv2.imshow("Processed Image", image)
-    cv2.waitKey(1)
+    # Comprobar si hay un obstáculo en cada dirección y actualizar el mapa.
+    for i, sensor in enumerate(irSensorList):
+        if i not in [1, 3, 5]:
+            continue
+        sensor_value = sensor.getValue()
+        if sensor_value < IR_THRESHOLD:
+            if direction == 0:
+                map[current_pos_map[0] - 1][current_pos_map[1]] = 2  # obstáculo al norte
+            elif direction == 1:
+                map[current_pos_map[0]][current_pos_map[1] + 1] = 2  # obstáculo al este
+            elif direction == 2:
+                map[current_pos_map[0] + 1][current_pos_map[1]] = 2  # obstáculo al sur
+            elif direction == 3:
+                map[current_pos_map[0]][current_pos_map[1] - 1] = 2  # obstáculo al oeste
+
+    for row in map:
+        print(" ".join("." if cell == 0 else "#" for cell in row))
+    """
 
 def stop(leftWheel, rightWheel):
     """
     Para el robot.
+
+    leftWheel: dispositivo del motor de la rueda izquierda.
+    rightWheel: dispositivo del motor de la rueda derecha.
     """
 
     leftWheel.setVelocity(0)
@@ -187,16 +248,24 @@ def stop(leftWheel, rightWheel):
 def forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map):
     """
     Mueve el robot hacia delante.
+
+    leftWheel: dispositivo del motor de la rueda izquierda.
+    rightWheel: dispositivo del motor de la rueda derecha.
+    encoderL: dispositivo del sensor de posición de la rueda izquierda.
+    encoderR: dispositivo del sensor de posición de la rueda derecha.
+    direction: entero que indica la dirección actual del robot (0=norte, 1=este, 2=sur, 3=oeste).
+    current_pos_map: tupla que indica la posición actual del robot en la matriz.
     """
 
-    if direction%4 == 0:
+    if direction % 4 == 0:
         current_pos_map = (current_pos_map[0] + 1, current_pos_map[1])
-    elif direction%4 == 1:
+    elif direction % 4 == 1:
         current_pos_map = (current_pos_map[0], current_pos_map[1] + 1)
-    elif direction%4 == 2:
+    elif direction % 4 == 2:
         current_pos_map = (current_pos_map[0] - 1, current_pos_map[1])
-    elif direction%4 == 3:
+    elif direction % 4 == 3:
         current_pos_map = (current_pos_map[0], current_pos_map[1] - 1)
+
     incrementL = FORWARD_DELTA
     incrementR = FORWARD_DELTA
     leftWheel.setVelocity(CRUISE_SPEED) 
@@ -208,6 +277,12 @@ def forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_ma
 def turn_left(leftWheel, rightWheel, encoderL, encoderR, direction):
     """
     Gira el robot hacia la izquierda.
+
+    leftWheel: dispositivo del motor de la rueda izquierda.
+    rightWheel: dispositivo del motor de la rueda derecha.
+    encoderL: dispositivo del sensor de posición de la rueda izquierda.
+    encoderR: dispositivo del sensor de posición de la rueda derecha.
+    direction: entero que indica la dirección actual del robot (0=norte, 1=este, 2=sur, 3=oeste).
     """
 
     direction += 1
@@ -220,6 +295,12 @@ def turn_left(leftWheel, rightWheel, encoderL, encoderR, direction):
 def turn_right(leftWheel, rightWheel, encoderL, encoderR, direction):
     """
     Gira el robot hacia la derecha.
+
+    leftWheel: dispositivo del motor de la rueda izquierda.
+    rightWheel: dispositivo del motor de la rueda derecha.
+    encoderL: dispositivo del sensor de posición de la rueda izquierda.
+    encoderR: dispositivo del sensor de posición de la rueda derecha.
+    direction: entero que indica la dirección actual del robot (0=norte, 1=este, 2=sur, 3=oeste).
     """
 
     direction -= 1
@@ -230,6 +311,10 @@ def turn_right(leftWheel, rightWheel, encoderL, encoderR, direction):
     return direction
 
 def main():
+    """
+    Función principal.
+    """
+
     # Activamos los dispositivos necesarios y obtenemos referencias a ellos.
     robot, leftWheel, rightWheel, irSensorList, encoderL, encoderR, camera = init_devices(TIME_STEP)
 
@@ -238,37 +323,40 @@ def main():
     movement = -1
     stopped = True
     initial_pos = encoderL.getValue()
-    current_pos_map = (0, 0)
+    current_pos_map = (0, 3)
+
+    # Inicializar el mapa.
+    map = init_map()
 
     while robot.step(TIME_STEP) != -1:       
         if stopped:
             # Si hay pared a la izquierda, seguir de frente
-            if irSensorList[1].getValue() > 185 and irSensorList[3].getValue() < 185:
+            if irSensorList[1].getValue() > IR_THRESHOLD and irSensorList[3].getValue() < IR_THRESHOLD:
                 current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
                 
                 initial_pos = encoderL.getValue()
                 stopped = False
                 movement = MOVEMENTS.get("FORWARD")
                 
-                print("Frente")
+                print("Movimiento hacia adelante")
 
-            elif irSensorList[3].getValue() < 185 and movement == MOVEMENTS.get("TURN_LEFT"):
+            elif irSensorList[3].getValue() < IR_THRESHOLD and movement == MOVEMENTS.get("TURN_LEFT"):
                 current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
                 
                 initial_pos = encoderL.getValue()
                 stopped = False
                 movement = MOVEMENTS.get("FORWARD")
                 
-                print("Frente")
+                print("Movimiento hacia adelante")
 
-            elif irSensorList[3].getValue() > 185:
+            elif irSensorList[3].getValue() > IR_THRESHOLD:
                 direction = turn_right(leftWheel, rightWheel, encoderL, encoderR, direction)
                 
                 initial_pos = encoderL.getValue()
                 stopped = False
                 movement = MOVEMENTS.get("TURN_RIGHT")
                 
-                print("Derecha")
+                print("Giro a la derecha")
 
             # Si no hay pared a la izquierda, girar a la izquierda
             else:
@@ -278,20 +366,23 @@ def main():
                 stopped = False
                 movement = MOVEMENTS.get("TURN_LEFT")
                 
-                print("Izquierda")
+                print("Giro a la izquierda")
+
+        if  encoderL.getValue() >= initial_pos + FORWARD_DELTA and movement == MOVEMENTS.get("FORWARD") or \
+            encoderL.getValue() <= initial_pos - TURN_DELTA + 0.01 and movement == MOVEMENTS.get("TURN_LEFT") or \
+            encoderL.getValue() >= initial_pos + TURN_DELTA - 0.01 and movement == MOVEMENTS.get("TURN_RIGHT"):
+            
+            # Parar el robot.
+            stopped = True
+            stop(leftWheel, rightWheel)
+
+            # Procesar la imagen y obtener la posición actual del robot en el mapa.
+            process_image_hsv(camera)
 
         if encoderL.getValue() >= initial_pos + FORWARD_DELTA and movement == MOVEMENTS.get("FORWARD"):
-            stopped = True
-            stop(leftWheel, rightWheel)
-            print("Parado (después de ir hacia delante)")
-        elif encoderL.getValue() <= initial_pos - TURN_DELTA + 0.01 and movement == MOVEMENTS.get("TURN_LEFT"):
-            stopped = True
-            stop(leftWheel, rightWheel)
-            print("Parado (después de girar a la izquierda)")
-        elif encoderL.getValue() >= initial_pos + TURN_DELTA - 0.01 and movement == MOVEMENTS.get("TURN_RIGHT"):
-            stopped = True
-            stop(leftWheel, rightWheel)
-            print("Parado (después de girar a la derecha)")
+            print("Posición actual: " + str(current_pos_map))
+            # Comprobar si hay un obstáculo en cada dirección y actualizar el mapa.
+            update_map(current_pos_map, direction, irSensorList, map)
 
 if __name__ == "__main__":
     main()
