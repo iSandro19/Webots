@@ -42,7 +42,6 @@ INITIAL_POS = (13,13)
 current_pos_map = INITIAL_POS
 direction = 0
 
-
 # 0-Vacio, 1-No explorado, 2-Visitado, 3-Pared
 def mark_pos(pos, ir):
     if ir > 190:
@@ -51,19 +50,19 @@ def mark_pos(pos, ir):
         map[pos] = 0
     
 def mark_near(pos, direction, ir):
-    if direction%4 == 0:
+    if direction % 4 == 0:
         mark_pos((pos[0],pos[1]+1), ir[0]) # Left
         mark_pos((pos[0],pos[1]-1), ir[1]) # Right
         mark_pos((pos[0]+1,pos[1]), ir[2]) # Fwd
-    elif direction%4 == 1:
+    elif direction % 4 == 1:
         mark_pos((pos[0]-1,pos[1]), ir[0]) # Left
         mark_pos((pos[0]+1,pos[1]), ir[1]) # Right
         mark_pos((pos[0],pos[1]+1), ir[2]) # Fwd
-    elif direction%4 == 2:
+    elif direction % 4 == 2:
         mark_pos((pos[0],pos[1]-1), ir[0]) # Left
         mark_pos((pos[0],pos[1]+1), ir[1]) # Right
         mark_pos((pos[0]-1,pos[1]), ir[2]) # Fwd
-    elif direction%4 == 3:
+    elif direction % 4 == 3:
         mark_pos((pos[0]+1,pos[1]), ir[0]) # Left
         mark_pos((pos[0]-1,pos[1]), ir[1]) # Right
         mark_pos((pos[0],pos[1]-1), ir[2]) # Fwd
