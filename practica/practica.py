@@ -244,6 +244,7 @@ def heuristic(a, b):
     a: nodo inicial.
     b: nodo final.
     """
+    
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 def create_graph(map):
@@ -254,6 +255,7 @@ def create_graph(map):
 
     Devuelve un diccionario que representa el grafo.
     """
+    
     graph = {}
 
     for row in range(len(map)):
@@ -321,7 +323,7 @@ def a_star(map, start, goal):
 
     return open_list
 
-def move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map, path):
+def move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map, initial_pos, robot, path):
     """
     Mueve el robot a lo largo del camino especificado por la lista de celdas 'path'.
 
@@ -335,25 +337,65 @@ def move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_p
     """
     
     for cell in path:
-        print(cell)
+        stopped = True
+        exit_cell = False
+        check = True
+        direction_factor = 0
+
+        # Moverse a la celda de abajo.
         if cell[0] > current_pos_map[0]:
-            while direction % 4 != 0:
-                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-            current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+            direction_factor = 0
+
+        # Moverse a la celda de arriba.
         elif cell[0] < current_pos_map[0]:
-            while direction % 4 != 2:
-                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-            current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+            direction_factor = 2
+
+        # Moverse a la celda de la derecha.
         elif cell[1] > current_pos_map[1]:
-            while direction % 4 != 1:
-                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-            current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+            direction_factor = 1
+
+        # Moverse a la celda de la izquierda.
         elif cell[1] < current_pos_map[1]:
-            while direction % 4 != 3:
-                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-            current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
-    
+            direction_factor = 3
+        else:
+            check = False
+        
+        if check:
+            # Ejecución del movimiento.
+            if direction % 4 == direction_factor:
+                    exit_cell = True
+
+            while robot.step(TIME_STEP) != -1 and not exit_cell:
+                if stopped:
+                    direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
+                    initial_pos = encoderL.getValue()
+                    stopped = False
+
+                if encoderL.getValue() <= initial_pos - TURN_DELTA + 0.005:
+                    stop(leftWheel, rightWheel)
+                    stopped = True
+
+                    if direction % 4 == direction_factor:
+                        exit_cell = True
+
+            stopped = True
+            exit_cell = False
+
+            while robot.step(TIME_STEP) != -1 and not exit_cell:
+                if stopped:
+                    current_pos_map = forward(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map)
+                    initial_pos = encoderL.getValue()
+                    stopped = False
+
+                if encoderL.getValue() >= initial_pos + FORWARD_DELTA:
+                    stop(leftWheel, rightWheel)
+                    stopped = True
+                
+                    if current_pos_map == cell:
+                        exit_cell = True
+
     stop(leftWheel, rightWheel)
+
 
 # Funciones de debug. #############################################################################
 
@@ -549,7 +591,8 @@ def main():
     # Bucle de vuelta a casa.
     if robot.step(TIME_STEP) != -1 and STATES.get("COME_BACK") == states:
         path = a_star(map, current_pos_map, (13, 13))
-        move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map, path)
+        move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map, initial_pos, robot, path)
 
 if __name__ == "__main__":
     main()
+
