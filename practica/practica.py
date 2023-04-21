@@ -1,6 +1,6 @@
 ###################################################################################################
 # Robotica Q8 2022-2023
-# Title: Practica 2
+# Title: Practica 2 - Mapeo
 # Authors:
 #   - Óscar Alejandro Manteiga Seoane
 #   - Antonio Vila Leis
@@ -10,41 +10,57 @@
 from controller import Robot  # Módulo de Webots para el control el robot.
 from controller import Camera  # Módulo de Webots para el control de la cámara.
 
-import time  # Si queremos utilizar time.sleep().
 import numpy as np  # Si queremos utilizar numpy para procesar la imagen.
-import cv2  # Si queremos utilizar OpenCV para procesar la imagen.
 
 ###################################################################################################
 # CONSTANTES 
 ###################################################################################################
 # Máxima velocidad de las ruedas soportada por el robot (khepera4).
 MAX_SPEED = 47.6
+
 # Velocidad por defecto para este comportamiento.
 CRUISE_SPEED = 8
+
 # Time step por defecto para el controlador.
 TIME_STEP = 16
+
 # Tamaño de las baldosas del suelo.
 SQUARE_SIZE = 250
+
 # Radio de la rueda del robot.
 WHEEL_RADIUS = 21
+
 # Radio entre las ruedas del robot.
 BETWEEN_WHEELS_RADIUS = 108.29 / 2
+
 # Delta del incremento de la posición angular para un movimiento recto.
 FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
+
 # Delta del incremento de la posición angular para un giro de 90º (pi/2 rad).
 TURN_DELTA = 0.5*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+
 # Distancia recorrida por el robot.
 DISTANCE_TRAVELED = 0
+
 # Distancia de corte a las paredes.
 IR_THRESHOLD = 170
+
 # Tamaño de las columnas de la cámara.
 CAMERA_ROW_SIZE = 752
 CAMERA_ROW_SIZE_2 = CAMERA_ROW_SIZE // 2
 CAMERA_ROW_SIZE_4 = CAMERA_ROW_SIZE // 4
+
 # Tamaño de las filas de la cámara.
 CAMERA_COL_SIZE = 480
 CAMERA_COL_SIZE_2 = CAMERA_COL_SIZE // 2
 CAMERA_COL_SIZE_4 = CAMERA_COL_SIZE // 4
+
+# Límites del color en RGB
+COLOR_THRESHOLD = {
+    "red": 130,
+    "green": 130,
+    "blue": 100,
+}
 
 # Número de canales de la cámara.
 CAMERA_COLOR_CHANNELS = {
@@ -195,7 +211,7 @@ def process_image_hsv(camera):
         CAMERA_COLOR_CHANNELS.get("blue")
         ].mean())
 
-    if (red >= 200 and green >= 200 and blue <= 100):
+    if (red >= COLOR_THRESHOLD.get("red") and green >= COLOR_THRESHOLD.get("green") and blue <= COLOR_THRESHOLD.get("blue")):
         return True
     else:
         return False
@@ -205,22 +221,34 @@ def process_image_hsv(camera):
 def init_map():
     """
     Inicializa una matriz 27x27 celdas llena de ceros.
+
+    Return: matriz 27x27 llena de ceros.
     """
     return [[0] * 27 for _ in range(27)]
 
-def update_map(current_pos_map, map):
+def update_map(current_pos_map, direction, map):
     """
     Actualiza la matriz del mapa del entorno.
 
     current_pos_map: tupla que indica la posición actual del robot en la matriz.
-    direction: entero que indica la dirección actual del robot (0=norte, 1=este, 2=sur, 3=oeste).
+    direction: entero que indica la dirección actual del robot.
     irSensorList: lista con los sensores de distancia infrarrojos activados.
     map: matriz que representa el mapa del entorno.
     """
-    # Actualizar la celda actual como visitada.
-    map[current_pos_map[0]][current_pos_map[1]] = 1
 
-    print("- \n\n")
+    # Actualizar la celda actual como visitada.
+    map[current_pos_map[0]][current_pos_map[1]] = 0
+
+    if direction % 4 == 0:
+        map[current_pos_map[0]][current_pos_map[1] + 1] = 1
+    elif direction % 4 == 1:
+        map[current_pos_map[0] - 1][current_pos_map[1]] = 1
+    elif direction % 4 == 2:
+        map[current_pos_map[0]][current_pos_map[1] - 1] = 1
+    elif direction % 4 == 3:
+        map[current_pos_map[0] + 1][current_pos_map[1]] = 1
+
+    print("Mapa creado en la posición ", current_pos_map)
 
     for row in map:
         print(" ".join("." if cell == 0 else "#" for cell in row))
@@ -247,6 +275,40 @@ def heuristic(a, b):
     
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
+def flood_recursive(matrix):
+    """
+    Rellena la matriz con el algoritmo de inundación recursivo.
+
+    matrix: matriz a rellenar.
+
+    Return: matriz rellena.
+    """
+
+    width = len(matrix)
+    height = len(matrix[0])
+
+    def fill(x, y, previous, update):
+        # Si la celda no es del mismo tipo que el punto de inicio
+        if matrix[x][y] != previous:
+            return
+        # Si la celda ya ha sido visitada
+        elif matrix[x][y] == update:
+            return
+        else:
+            # Actualizar el tipo de la celda
+            matrix[x][y] = update
+
+            # Vecindad 4
+            neighbors = [(x - 1, y), (x + 1, y), (x, y - 1),(x, y + 1)]
+
+            for n in neighbors:
+                if 0 <= n[0] <= width - 1 and 0 <= n[1] <= height - 1:
+                    fill(n[0], n[1], previous, update)
+    
+    fill(13, 13, 0, 2)
+
+    return matrix
+
 def create_graph(map):
     """
     Crea un grafo no dirigido a partir de un mapa.
@@ -255,23 +317,29 @@ def create_graph(map):
 
     Devuelve un diccionario que representa el grafo.
     """
+
+    map = flood_recursive(map)
+
+    print("Mapa con el algoritmo de inundación:")
+    for row in map:
+        print(" ".join("." if cell == 0 else "#" if cell == 1 else "O" for cell in row))
     
     graph = {}
 
     for row in range(len(map)):
         for col in range(len(map[0])):
-            if not map[row][col]:
+            if not map[row][col] == 2:
                 continue
 
             node = (row, col)
             neighbors = []
-            if row > 0 and map[row - 1][col]:
+            if row > 0 and map[row - 1][col] == 2:
                 neighbors.append((row - 1, col))
-            if row < len(map) - 1 and map[row + 1][col]:
+            if row < len(map) - 1 and map[row + 1][col] == 2:
                 neighbors.append((row + 1, col))
-            if col > 0 and map[row][col - 1]:
+            if col > 0 and map[row][col - 1] == 2:
                 neighbors.append((row, col - 1))
-            if col < len(map[0]) - 1 and map[row][col + 1]:
+            if col < len(map[0]) - 1 and map[row][col + 1] == 2:
                 neighbors.append((row, col + 1))
 
             graph[node] = neighbors
@@ -363,15 +431,20 @@ def move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_p
         if check:
             # Ejecución del movimiento.
             if direction % 4 == direction_factor:
-                    exit_cell = True
+                exit_cell = True
 
             while robot.step(TIME_STEP) != -1 and not exit_cell:
                 if stopped:
-                    direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
+                    if direction % 4 - direction_factor == 1 or \
+                       direction % 4 - direction_factor == -3:
+                        direction = turn_right(leftWheel, rightWheel, encoderL, encoderR, direction)
+                    else:
+                        direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
                     initial_pos = encoderL.getValue()
                     stopped = False
 
-                if encoderL.getValue() <= initial_pos - TURN_DELTA + 0.005:
+                if encoderL.getValue() <= initial_pos - TURN_DELTA + 0.005 or \
+                   encoderL.getValue() >= initial_pos + TURN_DELTA - 0.005:
                     stop(leftWheel, rightWheel)
                     stopped = True
 
@@ -395,7 +468,6 @@ def move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_p
                         exit_cell = True
 
     stop(leftWheel, rightWheel)
-
 
 # Funciones de debug. #############################################################################
 
@@ -494,7 +566,7 @@ def turn_right(leftWheel, rightWheel, encoderL, encoderR, direction):
 ###################################################################################################
 def main():
     """
-    Función principal.
+    Función principal de la práctica, con el código de cada estado por los que pasa el robot.
     """
 
     # Activamos los dispositivos necesarios y obtenemos referencias a ellos.
@@ -505,7 +577,6 @@ def main():
     movement = -1
     states = 0
     stopped = True
-
     initial_direction = 0
     initial_pos = encoderL.getValue()
     current_pos_map = (13, 13)
@@ -513,15 +584,19 @@ def main():
     # Inicializar el mapa.
     map = init_map()
 
-    # Bucle inicial.
+    ###############################################################################################
+    # Estado de posicionamiento.
+    ###############################################################################################
+    print("ESTADO DE POSICIONAMIENTO")
+
     while robot.step(TIME_STEP) != -1 and STATES.get("INIT") == states:
         if stopped:
             if irSensorList[1].getValue() < IR_THRESHOLD:
-                    direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
-                    
-                    initial_pos = encoderL.getValue()
-                    stopped = False
-                    movement = MOVEMENTS.get("TURN_LEFT")
+                direction = turn_left(leftWheel, rightWheel, encoderL, encoderR, direction)
+                
+                initial_pos = encoderL.getValue()
+                stopped = False
+                movement = MOVEMENTS.get("TURN_LEFT")
             else:
                 states = STATES.get("MAP_MAKING")
                 initial_direction = direction
@@ -531,7 +606,12 @@ def main():
             stopped = True
             stop(leftWheel, rightWheel)
 
-    # Bucle principal.
+    ###############################################################################################
+    # Estado de mapeo y patrullaje.
+    ###############################################################################################
+    print("ESTADO DE MAPEO Y PATRULLAJE")
+    update_map(current_pos_map, direction, map)
+
     while robot.step(TIME_STEP) != -1 and (STATES.get("MAP_MAKING") == states or STATES.get("PATROL") == states):
         if stopped:
             # Si hay pared a la izquierda, seguir de frente
@@ -580,19 +660,23 @@ def main():
                 states = STATES.get("COME_BACK")
 
         # Actualizar mapa y comprobar si el robot ha llegado a la posición objetivo.
-        if encoderL.getValue() >= initial_pos + FORWARD_DELTA and movement == MOVEMENTS.get("FORWARD"):
-            # Comprobar si hay un obstáculo en cada dirección y actualizar el mapa.
-            update_map(current_pos_map, map)
+        if (encoderL.getValue() >= initial_pos + FORWARD_DELTA and movement == MOVEMENTS.get("FORWARD") or \
+            encoderL.getValue() >= initial_pos + TURN_DELTA - 0.005 and movement == MOVEMENTS.get("TURN_RIGHT")) and \
+            STATES.get("MAP_MAKING") == states:
+            # Actualizar el mapa.
+            update_map(current_pos_map, direction, map)
         
         # Comprobar si el robot ha llegado a la posición objetivo.
         if check_goal(current_pos_map, direction, initial_direction):
             states = STATES.get("PATROL")
 
-    # Bucle de vuelta a casa.
+    ###############################################################################################
+    # Estado de vuelta a la posición inicial y parada.
+    ###############################################################################################
+    print("ESTADO DE VUELTA A LA POSICIÓN INICIAL Y PARADA.")
     if robot.step(TIME_STEP) != -1 and STATES.get("COME_BACK") == states:
         path = a_star(map, current_pos_map, (13, 13))
         move_to_cell(leftWheel, rightWheel, encoderL, encoderR, direction, current_pos_map, initial_pos, robot, path)
 
 if __name__ == "__main__":
     main()
-
