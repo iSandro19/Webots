@@ -211,7 +211,9 @@ def process_image_hsv(camera):
         CAMERA_COLOR_CHANNELS.get("blue")
         ].mean())
 
-    if (red >= COLOR_THRESHOLD.get("red") and green >= COLOR_THRESHOLD.get("green") and blue <= COLOR_THRESHOLD.get("blue")):
+    if (red >= COLOR_THRESHOLD.get("red") and \
+        green >= COLOR_THRESHOLD.get("green") and \
+        blue <= COLOR_THRESHOLD.get("blue")):
         return True
     else:
         return False
