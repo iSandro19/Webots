@@ -67,6 +67,8 @@ def check_estado(sensor_values, Estado):
     elif sensor_values[2] > 750 and sensor_values[0] < 500:
         return Estado.S2
     return Estado.S3
+
+#* Cambiar la función de comprobación de refuerzo.
     
 def check_refuerzo(new_sensor_values, prev_sensor_values):
     if all(value < 500 for value in prev_sensor_values) and \
@@ -89,52 +91,47 @@ def check_refuerzo(new_sensor_values, prev_sensor_values):
     
 # Funciones de actualización. #####################################################################
 
-def actualizar_refuerzo(refuerzo, action, prev_estado, nuevo_estado, learning_rat, visitas):
-    visitas[prev_estado.value][action] += 1
-    learning_rate = 1 / (1 + visitas[prev_estado.value][action])
-    #mat_q[prev_estado.value][action] = (1-learning_rate) * mat_q[prev_estado.value][action] + learning_rate * (refuerzo + gamma_value * np.argmax(mat_q[nuevo_estado.value]))
-    mat_q = np.identity(3)
+def actualizar_refuerzo(refuerzo, action, prev_estado, nuevo_estado, learning_rate, gamma_value, visitas, mat_q):
+    Q_target = refuerzo + gamma_value * np.max(mat_q[nuevo_estado.value])
+    mat_q[prev_estado.value][action] = Q_target
+    
     return learning_rate
 
 # Funciones de ejecución de acciones. #############################################################
-
-def pick_random_action():
-    return random.randint(0, 2)
     
 def pick_action(estado_actual, mat_q):
     return np.argmax(mat_q[estado_actual.value])
 
-def go_straight(Accion, leftWheel, rightWheel):
-    accion_actual = Accion.A1
+#* Hacer que los movimientos sean fijos en duración o en distancia.
+
+def go_straight(leftWheel, rightWheel):
     leftWheel.setVelocity(CRUISE_SPEED)
     rightWheel.setVelocity(CRUISE_SPEED)
     
-def turn_left(Accion, leftWheel, rightWheel):
-    accion_actual = Accion.A2
+def turn_left(leftWheel, rightWheel):
     leftWheel.setVelocity(-CRUISE_SPEED)
     rightWheel.setVelocity(CRUISE_SPEED)
     
-def turn_right(Accion, leftWheel, rightWheel):
-    accion_actual = Accion.A3
+def turn_right(leftWheel, rightWheel):
     leftWheel.setVelocity(CRUISE_SPEED)
     rightWheel.setVelocity(-CRUISE_SPEED)
 
+#*
+
 def perform_action(action, Accion, leftWheel, rightWheel):
+    # Si la acción es 0, girar a la derecha.
     if action == 0:
-        turn_right(Accion, leftWheel, rightWheel)
+        turn_right(leftWheel, rightWheel)
+    # Si la acción es 1, girar a la izquierda.
     elif action == 1:
-        turn_left(Accion, leftWheel, rightWheel)
+        turn_left(leftWheel, rightWheel)
+    # Si la acción es 2, ir recto.
     elif action == 2:
-        go_straight(Accion, leftWheel, rightWheel)
+        go_straight(leftWheel, rightWheel)
 
-###################################################################################################
-# MAIN
-###################################################################################################
-def main():
-    """
-    Función principal de la práctica.
-    """
+# Funciones de inicialización. ####################################################################
 
+def init():
     robot = Robot()
 
     f_camera = robot.getDevice("camera")
@@ -152,8 +149,6 @@ def main():
         ir_sens.enable(TIME_STEP)
         ir_sensors.append(ir_sens)
 
-    leds = [robot.getDevice("front left led"), robot.getDevice("front right led"), robot.getDevice("rear led")]
-
     leftWheel = robot.getDevice("left wheel motor")
     rightWheel = robot.getDevice("right wheel motor")
     leftWheel.getPositionSensor().enable(TIME_STEP)
@@ -168,7 +163,7 @@ def main():
     learning_rate = 0.5
     gamma_value = 0.5
 
-    mat_q = np.identity(3)
+    mat_q = np.zeros((3,3))
     visitas = np.zeros((3,3))
 
     sensors_hist = []
@@ -184,7 +179,40 @@ def main():
         A3 = 2
         
     estado_actual = Estado.S3
-    accion_actual = Accion.A1
+
+    return robot, ir_sensors, leftWheel, \
+           rightWheel, last_display_second, learning_rate, \
+           gamma_value, mat_q, visitas, sensors_hist, \
+           estado_actual, Estado, Accion
+
+# Funciones de debug y visualización. #############################################################
+
+def print_q_matrix(mat_q):
+    # Encabezado de la matriz Q
+    print("Matriz Q:")
+    print("    A1   A2   A3")
+    print("-----------------")
+
+    # Mostrar la matriz Q con redondeo a 2 decimales
+    for i in range(mat_q.shape[0]):
+        row = f"S{i+1}: "
+        for j in range(mat_q.shape[1]):
+            row += f"{np.round(mat_q[i][j], 2):>5} "
+        print(row)
+    print("-----------------\n\n")
+
+###################################################################################################
+# MAIN
+###################################################################################################
+def main():
+    """
+    Función principal de la práctica.
+    """
+
+    robot, ir_sensors, leftWheel, \
+    rightWheel, last_display_second, learning_rate, \
+    gamma_value, mat_q, visitas, sensors_hist, \
+    estado_actual, Estado, Accion = init()
 
     while robot.step(TIME_STEP) != -1:
         display_second = robot.getTime()
@@ -193,6 +221,7 @@ def main():
             
             # Comprobación se seguridad para las paredes
             if (ir_sensors[2].getValue() > 300 or ir_sensors[3].getValue() > 300 or ir_sensors[4].getValue() > 300):
+                print("####! Pared detectada, ejecutando acción de seguridad !####")
                 speed_offset = 0.2 * (CRUISE_SPEED - 0.03 * ir_sensors[3].getValue());
                 speed_delta = 0.03 * ir_sensors[2].getValue() - 0.03 * ir_sensors[4].getValue()
                 leftWheel.setVelocity(speed_offset + speed_delta)
@@ -205,14 +234,14 @@ def main():
                 estado_actual = check_estado(sensor_values, Estado)
                 
                 action = pick_action(estado_actual, mat_q)
-                print(mat_q)
+                print_q_matrix(mat_q)
                 perform_action(action, Accion, leftWheel, rightWheel)
             
                 sensors_hist.append(check_sensors(ir_sensors))
                 new_sensor_values = sensors_hist[len(sensors_hist)-3]
                 nuevo_estado = check_estado(new_sensor_values, Estado)
                 refuerzo = check_refuerzo(sensor_values, new_sensor_values)
-                learning_rate = actualizar_refuerzo(refuerzo, action, estado_actual, nuevo_estado, learning_rate, visitas)
+                learning_rate = actualizar_refuerzo(refuerzo, action, estado_actual, nuevo_estado, learning_rate, gamma_value, visitas, mat_q)
 
 if __name__ == "__main__":
     main()
