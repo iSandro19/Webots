@@ -71,36 +71,74 @@ def check_estado(sensor_values, Estado):
 #* Cambiar la función de comprobación de refuerzo.
     
 def check_refuerzo(new_sensor_values, prev_sensor_values):
+    # Sigue en lo negro
     if all(value < 500 for value in prev_sensor_values) and \
        all(value < 500 for value in new_sensor_values):
         return 1
+    
+    # Sale del negro al blanco hacia la derecha
     elif all(value < 500 for value in prev_sensor_values) and \
-         not all(value < 500 for value in new_sensor_values):
-        return -1
-    elif all(value > 750 for value in prev_sensor_values) and \
-         all(value > 750 for value in new_sensor_values):
-        return -1
+         new_sensor_values[0] < 500 and new_sensor_values[1] < 500 and \
+         new_sensor_values[2] > 750 and new_sensor_values[3] > 750:
+        return -0.5
+    
+    # Sale del negro al blanco hacia la izquierda
+    elif all(value < 500 for value in prev_sensor_values) and \
+         new_sensor_values[0] > 750 and new_sensor_values[1] > 750 and \
+         new_sensor_values[2] < 500 and new_sensor_values[3] < 500:
+        return -0.5
+    
+    # Sale del blanco al negro hacia la derecha
+    elif prev_sensor_values[0] > 750 and prev_sensor_values[1] > 750 and \
+         prev_sensor_values[2] < 500 and prev_sensor_values[3] < 500 and \
+         all(value < 500 for value in new_sensor_values):
+        return 0.5
+    
+    # Sale del blanco al negro hacia la izquierda
+    elif prev_sensor_values[0] < 500 and prev_sensor_values[1] < 500 and \
+         prev_sensor_values[2] > 750 and prev_sensor_values[3] > 750 and \
+         all(value < 500 for value in new_sensor_values):
+        return 0.5
+    
+    # Pasa del blanco al negro completamente
     elif all(value > 750 for value in prev_sensor_values) and \
          not all(value > 750 for value in new_sensor_values):
         return 1
-    elif sum(i > 750 for i in prev_sensor_values) < \
-         sum(i > 750 for i in new_sensor_values):
+    
+    # Sigue en lo blanco
+    elif all(value > 750 for value in prev_sensor_values) and \
+         all(value > 750 for value in new_sensor_values):
+        return 0
+    
+    # Pasa del negro al blanco completamente
+    elif all(value < 500 for value in prev_sensor_values) and \
+         not all(value < 500 for value in new_sensor_values):
         return -1
+    
     else:
-        return 1
+        return 0
     
 # Funciones de actualización. #####################################################################
 
 def actualizar_refuerzo(refuerzo, action, prev_estado, nuevo_estado, learning_rate, gamma_value, visitas, mat_q):
-    Q_target = refuerzo + gamma_value * np.max(mat_q[nuevo_estado.value])
-    mat_q[prev_estado.value][action] = Q_target
+    visitas[prev_estado.value][action] += 1
+    learning_rate = 1 / visitas[prev_estado.value][action]
+
+    mat_q[prev_estado.value][action] = (1-learning_rate) * mat_q[prev_estado.value][action] + learning_rate * (refuerzo + gamma_value * np.argmax(mat_q[nuevo_estado.value]))
     
     return learning_rate
 
 # Funciones de ejecución de acciones. #############################################################
     
-def pick_action(estado_actual, mat_q):
-    return np.argmax(mat_q[estado_actual.value])
+def pick_action(estado_actual, mat_q, cnt):
+    p = cnt / 100.0  # Calcula p como una función lineal de cnt
+    if random.random() < p:
+        print("Acción pensada")
+        return np.argmax(mat_q[estado_actual.value])
+    else:
+        print("Acción aleatoria")
+        return random.randint(0, 2)
+
 
 #* Hacer que los movimientos sean fijos en duración o en distancia.
 
@@ -109,12 +147,12 @@ def go_straight(leftWheel, rightWheel):
     rightWheel.setVelocity(CRUISE_SPEED)
     
 def turn_left(leftWheel, rightWheel):
-    leftWheel.setVelocity(-CRUISE_SPEED)
+    leftWheel.setVelocity(-CRUISE_SPEED + 4)
     rightWheel.setVelocity(CRUISE_SPEED)
     
 def turn_right(leftWheel, rightWheel):
     leftWheel.setVelocity(CRUISE_SPEED)
-    rightWheel.setVelocity(-CRUISE_SPEED)
+    rightWheel.setVelocity(-CRUISE_SPEED + 4)
 
 #*
 
@@ -214,12 +252,15 @@ def main():
     gamma_value, mat_q, visitas, sensors_hist, \
     estado_actual, Estado, Accion = init()
 
+    cnt = 0
+
+    # Bucle principal de la simulación.
     while robot.step(TIME_STEP) != -1:
         display_second = robot.getTime()
         if display_second != last_display_second:
             last_display_second = display_second
             
-            # Comprobación se seguridad para las paredes
+            # Comprobación de seguridad para las paredes
             if (ir_sensors[2].getValue() > 300 or ir_sensors[3].getValue() > 300 or ir_sensors[4].getValue() > 300):
                 print("####! Pared detectada, ejecutando acción de seguridad !####")
                 speed_offset = 0.2 * (CRUISE_SPEED - 0.03 * ir_sensors[3].getValue());
@@ -229,19 +270,25 @@ def main():
             
             # Q-Learning
             else:
+                # Lectura de sensores
                 sensor_values = check_sensors(ir_sensors)
                 sensors_hist.append(sensor_values)
                 estado_actual = check_estado(sensor_values, Estado)
                 
-                action = pick_action(estado_actual, mat_q)
+                # Realizar acción
+                action = pick_action(estado_actual, mat_q, cnt)
+                print(cnt)
                 print_q_matrix(mat_q)
                 perform_action(action, Accion, leftWheel, rightWheel)
             
+                # Actualizar matriz Q
                 sensors_hist.append(check_sensors(ir_sensors))
                 new_sensor_values = sensors_hist[len(sensors_hist)-3]
                 nuevo_estado = check_estado(new_sensor_values, Estado)
                 refuerzo = check_refuerzo(sensor_values, new_sensor_values)
                 learning_rate = actualizar_refuerzo(refuerzo, action, estado_actual, nuevo_estado, learning_rate, gamma_value, visitas, mat_q)
+
+                cnt += 1
 
 if __name__ == "__main__":
     main()
