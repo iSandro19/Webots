@@ -9,9 +9,9 @@
 ###################################################################################################
 from controller import Robot # Módulo de Webots para el control del robot
 
-import random
-from enum import Enum
-import numpy as np
+import random # Módulo para la generación de números aleatorios
+from enum import Enum # Módulo para la creación de enumeraciones
+import numpy as np # Módulo de cálculo numérico
 
 ###################################################################################################
 # CONSTANTES 
@@ -38,7 +38,7 @@ WHITE_THRESHOLD = 750
 TIME_STEP = 16
 
 # Tamaño del movimiento hacia adelante
-SQUARE_SIZE = 25
+SQUARE_SIZE = 50
 
 # Radio de la rueda del robot.
 WHEEL_RADIUS = 21
@@ -49,8 +49,8 @@ BETWEEN_WHEELS_RADIUS = 108.29 / 2
 # Delta del incremento de la posición angular para un movimiento recto.
 FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
 
-# Delta del incremento de la posición angular para un giro de (pi/4 rad).
-TURN_DELTA = 0.25*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+# Delta del incremento de la posición angular.
+TURN_DELTA = 0.8*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
 
 # Nombres de los sensores ultrasónicos del robot.
 ULTRASONIC_SENSORS = [
@@ -107,8 +107,10 @@ def check_sensors(ir_sensors):
         list: Lista con los valores de los sensores infrarrojos del robot.
     """
 
-    return [ir_sensors[8].getValue(), ir_sensors[9].getValue(),
-            ir_sensors[10].getValue(), ir_sensors[11].getValue()]
+    return [ir_sensors[8].getValue(),
+            ir_sensors[9].getValue(),
+            ir_sensors[10].getValue(),
+            ir_sensors[11].getValue()]
     
 def check_estado(sensor_values, Estado):
     """
@@ -122,10 +124,14 @@ def check_estado(sensor_values, Estado):
         Enum: Estado del robot.
     """
 
+    # Abandona la línea negra por la izquierda.
     if sensor_values[1] > 750 and sensor_values[3] < 500:
         return Estado.S1
+    # Abandona la línea negra por la derecha.
     elif sensor_values[2] > 750 and sensor_values[0] < 500:
         return Estado.S2
+    
+    # Resto de casos
     return Estado.S3
     
 def check_refuerzo(new_sensor_values, prev_sensor_values):
@@ -140,88 +146,33 @@ def check_refuerzo(new_sensor_values, prev_sensor_values):
         int: Refuerzo.
     """
 
-    """
-    # Sigue en lo negro.
-    if all(value < BLACK_THRESHOLD for value in prev_sensor_values) and \
-       all(value < BLACK_THRESHOLD for value in new_sensor_values):
-        return 1
-    
-    # Sale del negro al blanco hacia la derecha.
-    elif all(value < BLACK_THRESHOLD for value in prev_sensor_values) and \
-         new_sensor_values[0] < BLACK_THRESHOLD and new_sensor_values[1] < BLACK_THRESHOLD and \
-         new_sensor_values[2] > WHITE_THRESHOLD and new_sensor_values[3] > WHITE_THRESHOLD:
-        return -0.5
-    
-    # Sale del negro al blanco hacia la izquierda.
-    elif all(value < BLACK_THRESHOLD for value in prev_sensor_values) and \
-         new_sensor_values[0] > WHITE_THRESHOLD and new_sensor_values[1] > WHITE_THRESHOLD and \
-         new_sensor_values[2] < BLACK_THRESHOLD and new_sensor_values[3] < BLACK_THRESHOLD:
-        return -0.5
-    
-    # Sale del blanco al negro hacia la derecha.
-    elif prev_sensor_values[0] > WHITE_THRESHOLD and prev_sensor_values[1] > WHITE_THRESHOLD and \
-         prev_sensor_values[2] < BLACK_THRESHOLD and prev_sensor_values[3] < BLACK_THRESHOLD and \
-         all(value < BLACK_THRESHOLD for value in new_sensor_values):
-        return 0.5
-    
-    # Sale del blanco al negro hacia la izquierda.
-    elif prev_sensor_values[0] < BLACK_THRESHOLD and prev_sensor_values[1] < BLACK_THRESHOLD and \
-         prev_sensor_values[2] > WHITE_THRESHOLD and prev_sensor_values[3] > WHITE_THRESHOLD and \
-         all(value < BLACK_THRESHOLD for value in new_sensor_values):
-        return 0.5
-    
-    # Pasa del blanco al negro completamente.
-    elif all(value > WHITE_THRESHOLD for value in prev_sensor_values) and \
-         all(value < BLACK_THRESHOLD for value in new_sensor_values):
-        return 1
-    
-    # Sigue en lo blanco.
-    elif all(value > WHITE_THRESHOLD for value in prev_sensor_values) and \
-         all(value > WHITE_THRESHOLD for value in new_sensor_values):
-        return 0
-    
-    # Pasa del negro al blanco completamente.
-    elif all(value < BLACK_THRESHOLD for value in prev_sensor_values) and \
-         all(value > WHITE_THRESHOLD for value in new_sensor_values):
-        return -1
-    
-    # No cambiamos el refuerzo si no se cumple ningún caso.
-    else:
-        return 0
-    """
-
-    """
-    # Todos los sensores están en negro
-    if all(value < BLACK_THRESHOLD for value in new_sensor_values):
-        return 1
-    # Todos los sensores están en blanco
-    elif all(value > WHITE_THRESHOLD for value in new_sensor_values):
-        return -1
-    # Mitad de los sensores están en negro
-    else:
-        black_sensors = sum(1 for value in new_sensor_values if value < BLACK_THRESHOLD)
-        white_sensors = sum(1 for value in new_sensor_values if value > WHITE_THRESHOLD)
-        if black_sensors == 1 and white_sensors == 3:
-            return -1
-        elif black_sensors == 2 and white_sensors == 2:
-            return 0
-        elif black_sensors == 3 and white_sensors == 1:
-            return 1
-        # No se cumple ningún caso
-        return 0
-    """
+    # Si el robot está en la línea negra completamente y se mantiene completamente, el refuerzo es 1.
     if all(value < 500 for value in prev_sensor_values) and all(value < 500 for value in new_sensor_values):
         return 1
+    
+    # Si el robot está en la línea negra completamente y se sale completamente al blanco, el refuerzo es -1.
     elif all(value < 500 for value in prev_sensor_values) and not all(value < 500 for value in new_sensor_values):
         return -1
+    
+    # Si el robot está en el espacio blanco completamente y se mantiene completamente, el refuerzo es -1.
     elif all(value > 750 for value in prev_sensor_values) and all(value > 750 for value in new_sensor_values):
         return -1
+    
+    # Si el robot está en el espacio blanco completamente y se sale completamente a la línea negra, el refuerzo es 1.
     elif all(value > 750 for value in prev_sensor_values) and not all(value > 750 for value in new_sensor_values):
         return 1
+    
+    # Si el robot tiene más sensores en la línea negra que en el espacio blanco, el refuerzo es 1.
+    elif sum(i < 500 for i in prev_sensor_values) > sum(i < 500 for i in new_sensor_values):
+        return 1
+    
+    # Si el robot tiene más sensores en el espacio blanco que en la línea negra, el refuerzo es -1.
     elif sum(i > 750 for i in prev_sensor_values) < sum(i > 750 for i in new_sensor_values):
         return -1
+    
+    # En el resto de casos, devolvemos 0.
     else:
-        return 1
+        return 0
     
 # Funciones de actualización. #####################################################################
 
@@ -246,10 +197,10 @@ def actualizar_matriz_q(refuerzo, action, prev_estado, nuevo_estado, learning_ra
 def pick_action(estado_actual, mat_q, cnt):
     p = cnt / ITERATIONS  # Calcula p como una función lineal de cnt
     if random.random() < p:
-        print("Pensada")
+        print("Acción pensada")
         return np.argmax(mat_q[estado_actual.value])
     else:
-        print("Aleatoria")
+        print("Acción aleatoria")
         return random.randint(0, 2)
 
 def go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
@@ -263,7 +214,7 @@ def turn_left(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
     initial_position = rightEncoder.getValue()
 
     while robot.step(TIME_STEP) != -1 and rightEncoder.getValue() < initial_position + TURN_DELTA:
-        leftWheel.setVelocity(CRUISE_SPEED/2)
+        leftWheel.setVelocity(CRUISE_SPEED / 4)
         rightWheel.setVelocity(CRUISE_SPEED)
     
 def turn_right(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
@@ -271,73 +222,75 @@ def turn_right(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
 
     while robot.step(TIME_STEP) != -1 and leftEncoder.getValue() < initial_position + TURN_DELTA:
         leftWheel.setVelocity(CRUISE_SPEED)
-        rightWheel.setVelocity(CRUISE_SPEED/2)
+        rightWheel.setVelocity(CRUISE_SPEED / 4)
 
 def perform_action(action, Accion, robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
-    print(action)
     # Si la acción es 0, girar a la derecha.
     if action == 0:
+        print("Girando a la derecha")
         turn_right(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     # Si la acción es 1, girar a la izquierda.
     elif action == 1:
+        print("Girando a la izquierda")
         turn_left(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     # Si la acción es 2, ir recto.
     elif action == 2:
+        print("Yendo recto")
         go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
 
 # Funciones de inicialización. ####################################################################
 
 def init():
-    robot = Robot()
+    robot = Robot() # Crear la instancia del robot
 
-    f_camera = robot.getDevice("camera")
-    f_camera.enable(TIME_STEP)
-
+    # Obtener los sensores de ultrasonidos
     u_sensors = []
     for sensor in ULTRASONIC_SENSORS:
         u_sens = robot.getDevice(sensor)
         u_sens.enable(TIME_STEP)
         u_sensors.append(u_sens)
 
+    # Obtener los sensores infrarrojos
     ir_sensors = []
     for sensor in INFRARED_SENSORS:
         ir_sens = robot.getDevice(sensor)
         ir_sens.enable(TIME_STEP)
         ir_sensors.append(ir_sens)
 
+    # Obtener los motores e inicializarlos
     leftWheel = robot.getDevice(MOTOR_NAMES[0])
     rightWheel = robot.getDevice(MOTOR_NAMES[1])
-
     leftWheel.getPositionSensor().enable(TIME_STEP)
     rightWheel.getPositionSensor().enable(TIME_STEP)
-
     leftWheel.setPosition(float('inf'))
     rightWheel.setPosition(float('inf'))
-
     leftWheel.setVelocity(0)
     rightWheel.setVelocity(0)
 
+    # Obtener los encoders
     leftEncoder = robot.getDevice(ENCODER_NAMES[0])
     rightEncoder = robot.getDevice(ENCODER_NAMES[1])
     
+    # Inicializar variables
     learning_rate = 0.5
     gamma_value = 0.5
-
     mat_q = np.zeros((3,3))
     visitas = np.zeros((3,3))
-
     sensors_hist = []
 
+    # Enumeración de estados.
     class Estado(Enum):
-        S1 = 0
-        S2 = 1
-        S3 = 2
+        S1 = 0 # Se abandona la línea por la izquierda.
+        S2 = 1 # Se abandona la línea por la derecha.
+        S3 = 2 # Resto de casos.
         
+    # Enumeración de acciones.
     class Accion(Enum):
-        A1 = 0
-        A2 = 1
-        A3 = 2
+        A1 = 0 # Girar a la derecha.
+        A2 = 1 # Girar a la izquierda.
+        A3 = 2 # Ir recto.
         
+    # Estado inicial.
     estado_actual = Estado.S3
 
     return robot, ir_sensors, leftWheel, \
@@ -369,15 +322,17 @@ def main():
     Función principal de la práctica.
     """
 
+    # Inicialización de variables obtenidas de la inicialización.
     robot, ir_sensors, leftWheel, \
     rightWheel, leftEncoder, rightEncoder, learning_rate, \
     gamma_value, mat_q, visitas, sensors_hist, \
     estado_actual, Estado, Accion = init()
 
-    cnt = 0
+    cnt = 0 # Contador de iteraciones
 
     # Bucle principal de la simulación.
     while robot.step(TIME_STEP) != -1:
+        print("Iteración número: ", cnt)
         # Lectura de sensores
         sensor_values = check_sensors(ir_sensors)
         sensors_hist.append(sensor_values)
@@ -385,7 +340,6 @@ def main():
 
         # Realizar acción
         action = pick_action(estado_actual, mat_q, cnt)
-        print(cnt)
         print_q_matrix(mat_q)
         perform_action(action, Accion, robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     
@@ -395,16 +349,17 @@ def main():
         nuevo_estado = check_estado(new_sensor_values, Estado)
         refuerzo = check_refuerzo(sensor_values, new_sensor_values)
         learning_rate = actualizar_matriz_q(refuerzo, action, estado_actual, nuevo_estado, learning_rate, gamma_value, visitas, mat_q)
-        
-        cnt += 1
 
-        # Comprobación de seguridad para las paredes
-        while robot.step(TIME_STEP) != -1 and (ir_sensors[2].getValue() > IR_THRESHOLD or ir_sensors[3].getValue() > IR_THRESHOLD or ir_sensors[4].getValue() > IR_THRESHOLD):
-            print("####! Pared detectada, ejecutando acción de seguridad !####")
+        # Comprobación de seguridad
+        while robot.step(TIME_STEP) != -1 and (ir_sensors[2].getValue() > IR_THRESHOLD or
+                                               ir_sensors[3].getValue() > IR_THRESHOLD or
+                                               ir_sensors[4].getValue() > IR_THRESHOLD):
             speed_offset = 0.2 * (CRUISE_SPEED - 0.03 * ir_sensors[3].getValue());
             speed_delta = 0.03 * ir_sensors[2].getValue() - 0.03 * ir_sensors[4].getValue()
             leftWheel.setVelocity(speed_offset + speed_delta)
             rightWheel.setVelocity(speed_offset - speed_delta)
+        
+        cnt += 1 # Incrementar contador de iteraciones
 
 if __name__ == "__main__":
     main()
