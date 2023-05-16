@@ -20,10 +20,10 @@ import numpy as np # Módulo de cálculo numérico
 CRUISE_SPEED = 8
 
 # Distancia de seguiridad a las paredes.
-IR_THRESHOLD = 600
+IR_THRESHOLD = 400
 
 # Número de iteraciones hasta completar el aprendizaje.
-ITERATIONS = 100
+ITERATIONS = 1000
 
 # Detección de la línea negra.
 BLACK_THRESHOLD = 500
@@ -48,6 +48,9 @@ FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
 
 # Delta del incremento de la posición angular.
 TURN_DELTA = 0.05*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+
+# Delta del incremento de la posición angular (180).
+TURN_180_DELTA = np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
 
 # Nombres de los sensores ultrasónicos del robot.
 ULTRASONIC_SENSORS = [
@@ -125,6 +128,7 @@ def check_estado(sensor_values, Estado):
     if (sensor_values[0] > 750 and sensor_values[1] > 750 and sensor_values[2] > 750 and sensor_values[3] < 500) or \
        (sensor_values[0] < 500 and sensor_values[1] > 750 and sensor_values[2] < 500 and sensor_values[3] < 500) or \
        (sensor_values[0] > 750 and sensor_values[1] > 750 and sensor_values[2] < 500 and sensor_values[3] < 500):
+        
         print("S1")
         return Estado.S1
     
@@ -135,10 +139,6 @@ def check_estado(sensor_values, Estado):
          
         print("S2")
         return Estado.S2
-
-    # Abandona la línea negra de frente.
-    elif (sensor_values[1] > 750 and sensor_values[2] > 750):
-        return Estado.S1
     
     # Sigue la línea negra.
     else:
@@ -154,28 +154,15 @@ def check_refuerzo(new_sensor_values, prev_sensor_values):
 
     Returns:
         int: Refuerzo.
-    """   
+    """
 
     if all(value < 500 for value in prev_sensor_values) and \
        all(value < 500 for value in new_sensor_values):
         return 1
-    elif all(value < 500 for value in prev_sensor_values) and \
-         not all(value < 500 for value in new_sensor_values):
-        return -1
-    elif all(value > 750 for value in prev_sensor_values) and \
-         all(value > 750 for value in new_sensor_values):
-        return -1
-    elif all(value > 750 for value in prev_sensor_values) and \
-         not all(value > 750 for value in new_sensor_values):
-        return 1
-    elif sum(i > 750 for i in prev_sensor_values) < \
-         sum(i > 750 for i in new_sensor_values):
-        return -1
-    elif sum(i < 500 for i in prev_sensor_values) > \
-         sum(i < 500 for i in new_sensor_values):
+    elif sum(values < 500 for values in prev_sensor_values) < sum(values < 500 for values in new_sensor_values):
         return 1
     else:
-        return 0
+        return 0 
     
 # Funciones de actualización. #####################################################################
 
@@ -198,7 +185,6 @@ def actualizar_matriz_q(refuerzo, action, prev_estado, nuevo_estado, learning_ra
 # Funciones de ejecución de acciones. #############################################################
     
 def pick_action(estado_actual, mat_q, cnt):
-    """
     p = cnt / ITERATIONS  # Calcula p como una función lineal de cnt
     if random.random() < p:
         print("Acción pensada")
@@ -206,8 +192,6 @@ def pick_action(estado_actual, mat_q, cnt):
     else:
         print("Acción aleatoria")
         return random.randint(0, 2)
-    """
-    return np.argmax(mat_q[estado_actual.value])
 
 def go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
     initial_position = leftEncoder.getValue()
@@ -278,7 +262,7 @@ def init():
     rightEncoder = robot.getDevice(ENCODER_NAMES[1])
     
     # Inicializar variables
-    learning_rate = 0.5
+    learning_rate = 0
     gamma_value = 0.5
     
     #mat_q = np.zeros((3,3))
@@ -314,12 +298,14 @@ def avoid_obstacles(robot, ir_sensors, leftWheel, rightWheel, leftEncoder, right
     Función para evitar obstáculos.
     """
 
-    # Si el obstáculo está a menos de 10 cm, girar a la derecha.
-    while (ir_sensors[2].getValue() > 300 or ir_sensors[3].getValue() > 300 or ir_sensors[4].getValue() > 300) and robot.step(TIME_STEP) != -1:
-        speed_offset = 0.2 * (CRUISE_SPEED - 0.03 * ir_sensors[3].getValue());
-        speed_delta = 0.03 * ir_sensors[2].getValue() - 0.03 * ir_sensors[4].getValue()
-        leftWheel.setVelocity(speed_offset + speed_delta)
-        rightWheel.setVelocity(speed_offset - speed_delta)
+    # Si el obstáculo está a menos de 10 cm, girar a la izquierda.
+    if ir_sensors[1].getValue() > IR_THRESHOLD or ir_sensors[2].getValue() > IR_THRESHOLD or ir_sensors[3].getValue() > IR_THRESHOLD:
+        initial_position = rightEncoder.getValue()
+        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+        while robot.step(TIME_STEP) != -1 and rightEncoder.getValue() < initial_position + TURN_180_DELTA:
+            leftWheel.setVelocity(-2)
+            rightWheel.setVelocity(CRUISE_SPEED + 2)
 
 # Funciones de debug y visualización. #############################################################
 
@@ -356,7 +342,7 @@ def main():
     # Bucle principal de la simulación.
     while robot.step(TIME_STEP) != -1:
         # Comprobación de seguridad
-        #print("Iteración número: ", cnt)
+        print("Iteración número: ", cnt)
         # Lectura de sensores
         sensor_values = check_sensors(ir_sensors)
         sensors_hist.append(sensor_values)
