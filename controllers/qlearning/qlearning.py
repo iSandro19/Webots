@@ -20,7 +20,7 @@ import numpy as np # Módulo de cálculo numérico
 CRUISE_SPEED = 8
 
 # Distancia de seguiridad a las paredes.
-IR_THRESHOLD = 400
+IR_THRESHOLD = 500
 
 # Número de iteraciones hasta completar el aprendizaje.
 ITERATIONS = 1000
@@ -35,7 +35,7 @@ WHITE_THRESHOLD = 750
 TIME_STEP = 16
 
 # Tamaño del movimiento hacia adelante
-SQUARE_SIZE = 10
+SQUARE_SIZE = 25
 
 # Radio de la rueda del robot.
 WHEEL_RADIUS = 21
@@ -47,10 +47,10 @@ BETWEEN_WHEELS_RADIUS = 108.29 / 2
 FORWARD_DELTA = SQUARE_SIZE / WHEEL_RADIUS
 
 # Delta del incremento de la posición angular.
-TURN_DELTA = 0.05*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+TURN_DELTA = 0.1*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
 
-# Delta del incremento de la posición angular (180).
-TURN_180_DELTA = np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
+# Delta del incremento de la posición angular (aprx 180).
+TURN_180_DELTA = 0.5*np.pi * BETWEEN_WHEELS_RADIUS / WHEEL_RADIUS
 
 # Nombres de los sensores ultrasónicos del robot.
 ULTRASONIC_SENSORS = [
@@ -124,45 +124,34 @@ def check_estado(sensor_values, Estado):
         Enum: Estado del robot.
     """
 
-    # Abandona la línea negra por la izquierda.
-    if (sensor_values[0] > 750 and sensor_values[1] > 750 and sensor_values[2] > 750 and sensor_values[3] < 500) or \
-       (sensor_values[0] < 500 and sensor_values[1] > 750 and sensor_values[2] < 500 and sensor_values[3] < 500) or \
-       (sensor_values[0] > 750 and sensor_values[1] > 750 and sensor_values[2] < 500 and sensor_values[3] < 500):
-        
-        print("S1")
+    if sensor_values[1] > 750 and sensor_values[3] < 500:
+        print("Estado S1 (salida por la izquierda)")
         return Estado.S1
-    
-    # Abandona la línea negra por la derecha.
-    elif (sensor_values[0] < 500 and sensor_values[1] > 750 and sensor_values[2] > 750 and sensor_values[3] > 750) or \
-         (sensor_values[0] < 500 and sensor_values[1] < 500 and sensor_values[2] > 750 and sensor_values[3] < 500) or \
-         (sensor_values[0] < 500 and sensor_values[1] < 500 and sensor_values[2] > 750 and sensor_values[3] > 750):
-         
-        print("S2")
+    elif sensor_values[2] > 750 and sensor_values[0] < 500:
+        print("Estado S2 (salida por la derecha)")
         return Estado.S2
-    
-    # Sigue la línea negra.
     else:
+        print("Estado S3 (resto de casos)")
         return Estado.S3
     
-def check_refuerzo(new_sensor_values, prev_sensor_values):
+def check_refuerzo(prev_sensor_values, new_sensor_values):
     """
     Comprueba el refuerzo en función de los valores de los sensores infrarrojos.
 
     Args:
-        new_sensor_values (list): Lista con los nuevos valores de los sensores infrarrojos del robot.
         prev_sensor_values (list): Lista con los valores anteriores de los sensores infrarrojos del robot.
+        new_sensor_values (list): Lista con los valores nuevos de los sensores infrarrojos del robot.
 
     Returns:
         int: Refuerzo.
     """
 
-    if all(value < 500 for value in prev_sensor_values) and \
-       all(value < 500 for value in new_sensor_values):
-        return 1
-    elif sum(values < 500 for values in prev_sensor_values) < sum(values < 500 for values in new_sensor_values):
-        return 1
-    else:
-        return 0 
+    prev_black_sensors = sum(i < 500 for i in prev_sensor_values)
+    new_black_sensors = sum(i < 500 for i in new_sensor_values)
+
+    if new_black_sensors == 4:
+        return 0.5
+    return new_black_sensors - prev_black_sensors
     
 # Funciones de actualización. #####################################################################
 
@@ -171,29 +160,59 @@ def actualizar_matriz_q(refuerzo, action, prev_estado, nuevo_estado, learning_ra
     Actualiza la matriz Q conforme a la fórmula dada y al valor del refuerzo.
 
     Args:
-        refuerzo: 
+        refuerzo: Refuerzo.
+        action: Acción.
+        prev_estado: Estado anterior.
+        nuevo_estado: Nuevo estado.
+        learning_rate: Tasa de aprendizaje.
+        gamma_value: Factor de descuento.
+        visitas: Matriz de visitas.
+        mat_q: Matriz Q.S 
     """
-
-    visitas[prev_estado.value][action] += 1
 
     learning_rate = 1 / (1 + visitas[prev_estado.value][action])
 
     mat_q[prev_estado.value][action] = \
         (1-learning_rate) * mat_q[prev_estado.value][action] + \
         learning_rate * (refuerzo + gamma_value * np.argmax(mat_q[nuevo_estado.value]))
+    
+    visitas[prev_estado.value][action] += 1
         
 # Funciones de ejecución de acciones. #############################################################
     
 def pick_action(estado_actual, mat_q, cnt):
+    """
+    Elige la acción a realizar en función del estado actual y la matriz Q.
+
+    Args:
+        estado_actual: Estado actual.
+        mat_q: Matriz Q.
+        cnt: Contador de iteraciones.
+
+    Returns:
+        int: Acción a realizar.    
+    """
+    
     p = cnt / ITERATIONS  # Calcula p como una función lineal de cnt
     if random.random() < p:
-        print("Acción pensada")
+        print("Realizando acción óptima")
         return np.argmax(mat_q[estado_actual.value])
     else:
         print("Acción aleatoria")
         return random.randint(0, 2)
-
+    
 def go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
+    """
+    Hace que el robot avance recto.
+
+    Args:
+        robot: Robot.
+        leftWheel: Rueda izquierda.
+        rightWheel: Rueda derecha.
+        leftEncoder: Encoder izquierdo.
+        rightEncoder: Encoder derecho.    
+    """
+
     initial_position = leftEncoder.getValue()
 
     while robot.step(TIME_STEP) != -1 and leftEncoder.getValue() < initial_position + FORWARD_DELTA:
@@ -201,36 +220,87 @@ def go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
         rightWheel.setVelocity(CRUISE_SPEED)
     
 def turn_left(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
+    """
+    Hace que el robot gire a la izquierda.
+
+    Args:
+        robot: Robot.
+        leftWheel: Rueda izquierda.
+        rightWheel: Rueda derecha.
+        leftEncoder: Encoder izquierdo.
+        rightEncoder: Encoder derecho.
+    """
+
     initial_position = rightEncoder.getValue()
 
     while robot.step(TIME_STEP) != -1 and rightEncoder.getValue() < initial_position + TURN_DELTA:
-        leftWheel.setVelocity(-2)
-        rightWheel.setVelocity(CRUISE_SPEED + 2)
+        leftWheel.setVelocity(-4)
+        rightWheel.setVelocity(CRUISE_SPEED)
     
 def turn_right(robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
+    """
+    Hace que el robot gire a la derecha.
+
+    Args:
+        robot: Robot.
+        leftWheel: Rueda izquierda.
+        rightWheel: Rueda derecha.
+        leftEncoder: Encoder izquierdo.
+        rightEncoder: Encoder derecho.
+    """
+
     initial_position = leftEncoder.getValue()
 
     while robot.step(TIME_STEP) != -1 and leftEncoder.getValue() < initial_position + TURN_DELTA:
-        leftWheel.setVelocity(CRUISE_SPEED + 2)
-        rightWheel.setVelocity(-2)
+        leftWheel.setVelocity(CRUISE_SPEED)
+        rightWheel.setVelocity(-4)
 
 def perform_action(action, Accion, robot, leftWheel, rightWheel, leftEncoder, rightEncoder):
+    """
+    Realiza la acción indicada.
+
+    Args:
+        action: Acción a realizar.
+        Accion: Enumerado con las acciones.
+        robot: Robot.
+        leftWheel: Rueda izquierda.
+        rightWheel: Rueda derecha.
+        leftEncoder: Encoder izquierdo.
+        rightEncoder: Encoder derecho.
+    """
+
     # Si la acción es 0, girar a la derecha.
-    if action == 0:
-        #print("Girando a la derecha")
+    if action == Accion.A1.value:
         turn_right(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     # Si la acción es 1, girar a la izquierda.
-    elif action == 1:
-        #print("Girando a la izquierda")
+    elif action == Accion.A2.value:
         turn_left(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     # Si la acción es 2, ir recto.
-    elif action == 2:
-        #print("Yendo recto")
+    elif action == Accion.A3.value:
         go_straight(robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
 
 # Funciones de inicialización. ####################################################################
 
 def init():
+    """
+    Inicializa el robot y obtiene los sensores y motores.
+
+    Returns:
+        robot: Robot.
+        ir_sensors: Sensores infrarrojos.
+        leftWheel: Rueda izquierda.
+        rightWheel: Rueda derecha.
+        leftEncoder: Encoder izquierdo.
+        rightEncoder: Encoder derecho.
+        learning_rate: Tasa de aprendizaje.
+        gamma_value: Factor de descuento.
+        mat_q: Matriz Q.
+        visitas: Matriz de visitas.
+        estado_actual: Estado actual.
+        Estado: Enumerado con los estados.
+        Accion: Enumerado con las acciones.
+    """
+
     robot = Robot() # Crear la instancia del robot
 
     # Obtener los sensores de ultrasonidos
@@ -264,12 +334,8 @@ def init():
     # Inicializar variables
     learning_rate = 0
     gamma_value = 0.5
-    
-    #mat_q = np.zeros((3,3))
-    mat_q = np.identity(3)
-
+    mat_q = np.zeros((3,3))
     visitas = np.zeros((3,3))
-    sensors_hist = []
 
     # Enumeración de estados.
     class Estado(Enum):
@@ -288,32 +354,22 @@ def init():
 
     return robot, ir_sensors, leftWheel, \
            rightWheel, leftEncoder, rightEncoder, learning_rate, \
-           gamma_value, mat_q, visitas, sensors_hist, \
+           gamma_value, mat_q, visitas, \
            estado_actual, Estado, Accion
-
-# Funciones para evitar obstáculos. ##############################################################
-
-def avoid_obstacles(robot, ir_sensors, leftWheel, rightWheel, leftEncoder, rightEncoder):
-    """
-    Función para evitar obstáculos.
-    """
-
-    # Si el obstáculo está a menos de 10 cm, girar a la izquierda.
-    if ir_sensors[1].getValue() > IR_THRESHOLD or ir_sensors[2].getValue() > IR_THRESHOLD or ir_sensors[3].getValue() > IR_THRESHOLD:
-        initial_position = rightEncoder.getValue()
-        print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-
-        while robot.step(TIME_STEP) != -1 and rightEncoder.getValue() < initial_position + TURN_180_DELTA:
-            leftWheel.setVelocity(-2)
-            rightWheel.setVelocity(CRUISE_SPEED + 2)
 
 # Funciones de debug y visualización. #############################################################
 
 def print_q_matrix(mat_q):
-    # Encabezado de la matriz Q
+    """
+    Función que imprime la matriz Q.
+
+    Args:
+        mat_q: Matriz Q.
+    """
+
     print("Matriz Q:")
-    print("    A1   A2   A3")
-    print("-----------------")
+    print("      A1     A2     A3")
+    print("-----------------------")
 
     # Mostrar la matriz Q con redondeo a 2 decimales
     for i in range(mat_q.shape[0]):
@@ -321,7 +377,7 @@ def print_q_matrix(mat_q):
         for j in range(mat_q.shape[1]):
             row += f"{np.round(mat_q[i][j], 2):>5} "
         print(row)
-    print("-----------------\n\n")
+    print("-----------------------")
 
 ###################################################################################################
 # MAIN
@@ -334,37 +390,43 @@ def main():
     # Inicialización de variables obtenidas de la inicialización.
     robot, ir_sensors, leftWheel, \
     rightWheel, leftEncoder, rightEncoder, learning_rate, \
-    gamma_value, mat_q, visitas, sensors_hist, \
-    estado_actual, Estado, Accion = init()
+    gamma_value, mat_q, visitas, \
+    estado_previo, Estado, Accion = init()
 
     cnt = 0 # Contador de iteraciones
+    sensor_values = check_sensors(ir_sensors) # Obtener los valores de los sensores infrarrojos
 
     # Bucle principal de la simulación.
     while robot.step(TIME_STEP) != -1:
-        # Comprobación de seguridad
         print("Iteración número: ", cnt)
-        # Lectura de sensores
-        sensor_values = check_sensors(ir_sensors)
-        sensors_hist.append(sensor_values)
 
         # Realizar acción
-        action = pick_action(estado_actual, mat_q, cnt)
-        print_q_matrix(mat_q)
+        action = pick_action(estado_previo, mat_q, cnt)
         perform_action(action, Accion, robot, leftWheel, rightWheel, leftEncoder, rightEncoder)
     
         # Actualizar matriz Q
-        sensors_hist.append(check_sensors(ir_sensors))
-        new_sensor_values = sensors_hist[len(sensors_hist)-3]
+        new_sensor_values = (check_sensors(ir_sensors))
         nuevo_estado = check_estado(new_sensor_values, Estado)
-        #refuerzo = check_refuerzo(sensor_values, new_sensor_values)
-        #actualizar_matriz_q(refuerzo, action, estado_actual, nuevo_estado, learning_rate, gamma_value, visitas, mat_q)
+        refuerzo = check_refuerzo(sensor_values, new_sensor_values)
+        actualizar_matriz_q(refuerzo, action, estado_previo, nuevo_estado, learning_rate, gamma_value, visitas, mat_q)
+        print_q_matrix(mat_q)
 
         # Esquivar obstáculos
-        #avoid_obstacles(robot, ir_sensors, leftWheel, rightWheel, leftEncoder, rightEncoder)
+        while (ir_sensors[2].getValue() > IR_THRESHOLD or \
+               ir_sensors[3].getValue() > IR_THRESHOLD or \
+               ir_sensors[4].getValue() > IR_THRESHOLD) and \
+               robot.step(TIME_STEP) != -1:
+                speed_offset = 0.2 * (CRUISE_SPEED - 0.03 * ir_sensors[3].getValue());
+                speed_delta = 0.03 * ir_sensors[2].getValue() - 0.03 * ir_sensors[4].getValue()
+                leftWheel.setVelocity(speed_offset + speed_delta)
+                rightWheel.setVelocity(speed_offset - speed_delta)
 
-        estado_actual = nuevo_estado
-        sensor_values
-        cnt += 1 # Incrementar contador de iteraciones
+        # Actualizar variables
+        estado_previo = nuevo_estado
+        sensor_values = new_sensor_values
+        cnt += 1
+
+        print("###########################\n\n")
 
 if __name__ == "__main__":
     main()
